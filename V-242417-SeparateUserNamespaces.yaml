@@ -1,0 +1,58 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8snouserpodinsystemns
+  annotations:
+    description: >-
+      STIG V-242417 CNTR-K8-001360 MEDIUM: User pods must not run in Kubernetes
+      system namespaces (kube-system, kube-node-lease, kube-public). Pods in
+      those namespaces that do not carry a recognised system label key are flagged.
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sNoUserPodInSystemNs
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            systemNamespaces:
+              type: array
+              items:
+                type: string
+              description: >-
+                Namespaces considered system namespaces. Pods without a system
+                label found in these namespaces are a finding.
+            systemLabelKeys:
+              type: array
+              items:
+                type: string
+              description: >-
+                Label keys that identify a pod as an AKS/system workload. A pod
+                carrying at least one of these keys is exempt.
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8snouserpodinsystemns
+
+        import future.keywords.contains
+        import future.keywords.if
+        import future.keywords.in
+
+        is_system_namespace if {
+          input.review.object.metadata.namespace in input.parameters.systemNamespaces
+        }
+
+        has_system_label if {
+          key := input.parameters.systemLabelKeys[_]
+          input.review.object.metadata.labels[key]
+        }
+
+        violation contains {"msg": msg} if {
+          is_system_namespace
+          not has_system_label
+          msg := sprintf(
+            "pod '%v' in system namespace '%v' does not carry a recognised system label and appears to be a user workload. User pods must not run in system namespaces (STIG V-242417 / CNTR-K8-001360).",
+            [input.review.object.metadata.name, input.review.object.metadata.namespace],
+          )
+        }
