@@ -1,0 +1,44 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8snodashboard
+  annotations:
+    description: >-
+      STIG V-242395 CNTR-K8-000420 MEDIUM: Kubernetes dashboard must not be
+      enabled. Detects pods with the label k8s-app=kubernetes-dashboard in any
+      namespace.
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sNoDashboard
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            exemptNamespaces:
+              type: array
+              items:
+                type: string
+              description: Namespaces exempt from this check.
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8snodashboard
+
+        import future.keywords.contains
+        import future.keywords.if
+        import future.keywords.in
+
+        is_exempt if {
+          input.review.object.metadata.namespace in input.parameters.exemptNamespaces
+        }
+
+        violation contains {"msg": msg} if {
+          not is_exempt
+          input.review.object.metadata.labels["k8s-app"] == "kubernetes-dashboard"
+          msg := sprintf(
+            "pod '%v' in namespace '%v' has label k8s-app=kubernetes-dashboard. The Kubernetes dashboard must not be deployed (STIG V-242395 / CNTR-K8-000420).",
+            [input.review.object.metadata.name, input.review.object.metadata.namespace],
+          )
+        }
